@@ -32,27 +32,39 @@ int main(int argc, char **argv) {
 
     int option_index = 0;
     int c = getopt_long(argc, argv, "f", options, &option_index);
+    /*argc - количество параметров командной строки
+    argv - строка параметров
+    optstring("f") - список коротких названий параметров
+    longopts(options) - специальный массив с названиями длинных параметров
+    longindex(option_index) - указатель на переменную, в которую будет помещён
+    индекс текущего параметра из массива longopts*/
 
-    if (c == -1) break;
+
+    if (c == -1) break; //Если закончились параметры командной строки
 
     switch (c) {
       case 0:
         switch (option_index) {
           case 0:
             seed = atoi(optarg);
-            // your code here
-            // error handling
+            if (seed <= 0) {
+    			printf("seed is a positive number\n");
+    			return 1;
+  			}
             break;
           case 1:
             array_size = atoi(optarg);
-            // your code here
-            // error handling
+            if (array_size <= 0) {
+    			printf("array_size is a positive number\n");
+    			return 1;
+  			}
             break;
           case 2:
             pnum = atoi(optarg);
-            // your code here
-            // error handling
-            break;
+            if (pnum <= 0) {
+    			printf("pnum is a positive number\n");
+    			return 1;
+  			}
           case 3:
             with_files = true;
             break;
@@ -66,6 +78,7 @@ int main(int argc, char **argv) {
         break;
 
       case '?':
+      	printf("Found error");
         break;
 
       default:
@@ -87,24 +100,51 @@ int main(int argc, char **argv) {
   int *array = malloc(sizeof(int) * array_size);
   GenerateArray(array, array_size, seed);
   int active_child_processes = 0;
+  int array_step = pnum < array_size ? (array_size / pnum): 1;
 
   struct timeval start_time;
   gettimeofday(&start_time, NULL);
+
+  int fd[2];
+  if (with_files) {
+  	FILE *file;
+  	file = fopen("lab3.txt", "w+");
+  	fprintf(file, "");
+  	fclose(file);
+  } else {
+  	if (pipe(fd) < 0) {
+  		perror("Can\'t create pipe\n");
+  		exit(EXIT_FAILURE);
+  	}
+  }
 
   for (int i = 0; i < pnum; i++) {
     pid_t child_pid = fork();
     if (child_pid >= 0) {
       // successful fork
       active_child_processes += 1;
+      
       if (child_pid == 0) {
-        // child process
+        unsigned int start = array_step * (active_child_processes - 1);
+        unsigned int end = start + array_step;
 
-        // parallel somehow
+        start = start > array_size ? array_size : start;
+        end = end > array_size ? array_size : end;
+
+        if (active_child_processes == pnum) //Для нечетного массива
+        	end = array_size;
+
+        struct MinMax min_max = GetMinMax(array, start, end);
 
         if (with_files) {
-          // use files here
+          FILE *file;
+          file = fopen("lab3.txt", "a+");
+          fwrite(&min_max, sizeof(struct MinMax), 1, file);
+          fclose(file);
         } else {
-          // use pipe here
+          close(fd[0]);
+          write(fd[1], &min_max, sizeof(struct MinMax));
+          close(fd[1]);  
         }
         return 0;
       }
@@ -116,10 +156,12 @@ int main(int argc, char **argv) {
   }
 
   while (active_child_processes > 0) {
-    // your code here
-
+    wait(NULL);
     active_child_processes -= 1;
   }
+
+  FILE *file;
+  file = fopen("lab3.txt", "r");
 
   struct MinMax min_max;
   min_max.min = INT_MAX;
@@ -128,15 +170,26 @@ int main(int argc, char **argv) {
   for (int i = 0; i < pnum; i++) {
     int min = INT_MAX;
     int max = INT_MIN;
+    struct MinMax tmp_min_max;
 
     if (with_files) {
-      // read from files
+      fread(&tmp_min_max, sizeof(struct MinMax), 1, file);
+      if(i == pnum - 1)
+      	fclose(file);
     } else {
-      // read from pipes
+      close(fd[1]);
+      read(fd[0], &tmp_min_max, sizeof(struct MinMax));
+      close(fd[0]);
     }
 
-    if (min < min_max.min) min_max.min = min;
-    if (max > min_max.max) min_max.max = max;
+    printf("Сегмент: %d минимальное: %d максимальное: %d\n", i+1, tmp_min_max.min, tmp_min_max.max);
+    min = tmp_min_max.min;
+    max = tmp_min_max.max;
+
+    if (min < min_max.min) 
+    	min_max.min = min;
+    if (max > min_max.max) 
+    	min_max.max = max;
   }
 
   struct timeval finish_time;
